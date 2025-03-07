@@ -48,7 +48,8 @@ function! s:echox_verbose(level, echocmd, type, msg) abort
       exec a:echocmd . " '" . substitute(a:msg, "'", "''", "g") . "'"
       echohl None
     else
-      call minpac#progress#add_msg(a:type, a:msg)
+      " call minpac#progress#add_msg(a:type, a:msg)
+      call minpac#progress#AddMsg(a:type, a:msg)
     endif
   endif
 endfunction
@@ -114,7 +115,8 @@ endfunction
 
 " Get the revision of the specified plugin.
 function! minpac#impl#get_plugin_revision(name) abort
-  let l:rev = minpac#git#get_revision(g:minpac#pluglist[a:name].dir)
+  " let l:rev = minpac#git#get_revision(g:minpac#pluglist[a:name].dir)
+  let l:rev = minpac#git#GetRevision(g:minpac#pluglist[a:name].dir)
   if l:rev != v:null
     call s:echom_verbose(4, '', 'revision (' . a:name . '): ' . l:rev)
     return l:rev
@@ -134,7 +136,8 @@ endfunction
 
 " Get the branch name of the specified plugin.
 function! s:get_plugin_branch(name) abort
-  let l:branch = minpac#git#get_branch(g:minpac#pluglist[a:name].dir)
+  " let l:branch = minpac#git#get_branch(g:minpac#pluglist[a:name].dir)
+  let l:branch = minpac#git#GetBranch(g:minpac#pluglist[a:name].dir)
   if l:branch != v:null
     call s:echom_verbose(4, '', 'branch: ' . l:branch)
     return l:branch
@@ -610,7 +613,8 @@ endfunction
 " Update all or specified plugin(s).
 function! minpac#impl#update(...) abort
   if g:minpac#opt.progress_open !=# 'none'
-    call minpac#progress#open(['## minpac update progress ##', ''])
+    " call minpac#progress#open(['## minpac update progress ##', ''])
+    call minpac#progress#Open(['## minpac update progress ##', ''])
   endif
   let l:opt = extend(copy(get(a:000, 1, {})),
         \ {'do': ''}, 'keep')

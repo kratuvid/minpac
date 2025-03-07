@@ -1,54 +1,58 @@
-" ---------------------------------------------------------------------
-" minpac: A minimal package manager for Vim 8+ (and Neovim)
-"
-" Maintainer:   Ken Takata
-" Last Change:  2020-01-28
-" License:      VIM License
-" URL:          https://github.com/k-takata/minpac
-" ---------------------------------------------------------------------
+vim9script
+# ---------------------------------------------------------------------
+# minpac: A minimal package manager for Vim 8+ (and Neovim)
+#
+# Maintainer:   Ken Takata
+# Last Change:  2020-01-28
+# License:      VIM License
+# URL:          https://github.com/k-takata/minpac
+# ---------------------------------------------------------------------
 
-let s:winid = 0
-let s:bufnr = 0
+var winid = 0
+var bufnr = 0
 
-" Add a message to the minpac progress window
-function! minpac#progress#add_msg(type, msg) abort
-  " Goes to the minpac progress window.
-  if !win_gotoid(s:winid)
-    echom 'warning: minpac progress window not found.'
+# Add a message to the minpac progress window
+export def AddMsg(type: string, msg: string)
+  # Goes to the minpac progress window.
+  if !win_gotoid(winid)
+    echom 'warning: minpac progress window not found'
     return
   endif
+
   setlocal modifiable
-  let l:markers = {'': '  ', 'warning': 'W:', 'error': 'E:'}
-  call append(line('$') - 1, l:markers[a:type] . ' ' . a:msg)
+  const markers = {'': '  ', 'warning': 'W:', 'error': 'E:'}
+  append(line('$') - 1, markers[type] .. ' ' .. msg)
   setlocal nomodifiable
   redraw
-endfunction
+enddef
 
-" Open the minpac progress window
-function! minpac#progress#open(msg) abort
-  let l:bufname = '[minpac progress]'
-  if s:bufnr != 0
-    exec "silent! bwipe" s:bufnr
+# Open the minpac progress window
+export def Open(msg: list<string>)
+  const bufname = '[minpac progress]'
+  if bufnr != 0
+    exec "silent! bwipe" bufnr
   endif
-  if g:minpac#opt.progress_open ==# 'vertical'
+
+  if g:minpac#opt.progress_open == "vertical"
     vertical topleft new
-  elseif g:minpac#opt.progress_open ==# 'horizontal'
+  elseif g:minpac#opt.progress_open == "horizontal"
     topleft new
-  elseif g:minpac#opt.progress_open ==# 'tab'
+  elseif g:minpac#opt.progress_open == "tab"
     tabnew
   endif
-  let s:winid = win_getid()
-  call append(0, a:msg)
+
+  winid = win_getid()
+  append(0, msg)
 
   setf minpacprgs
-  call s:syntax()
-  call s:mappings()
+  Syntax()
+  Mappings()
   setlocal buftype=nofile bufhidden=wipe nobuflisted nolist noswapfile nomodifiable nospell
-  silent file `=l:bufname`
-  let s:bufnr = bufnr('')
-endfunction
+  silent file `=bufname`
+  bufnr = bufnr('')
+enddef
 
-function! s:syntax() abort
+def Syntax()
   syntax clear
   syn match minpacPrgsTitle     /^## .* ##/
   syn match minpacPrgsError     /^E: .*/
@@ -65,11 +69,11 @@ function! s:syntax() abort
   hi def link minpacPrgsUpdated   Special
   hi def link minpacPrgsUptodate  Comment
   hi def link minpacPrgsString    String
-endfunction
+enddef
 
-function! s:mappings() abort
+def Mappings()
   nnoremap <silent><buffer><nowait> q :q<CR>
   nnoremap <silent><buffer><nowait> s :call minpac#status()<CR>
-endfunction
+enddef
 
-" vim: set ts=8 sw=2 et:
+# vim: set ts=8 sw=2 et:

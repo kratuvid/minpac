@@ -527,3 +527,7 @@ License
 VIM License
 
 (`autoload/minpac/job.vim` is the MIT License.)
+
+### Todo
+- [ ] Quit using traditional autoload syntax '#', and use modern 'import autoload ...'
+- [ ] Use more of echoerr
