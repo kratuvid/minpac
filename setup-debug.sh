@@ -15,6 +15,7 @@ ln -s $PWD $PWD/$dir_fundamental/pack/minpac/opt/
 
 cat > $file_init <<- EOF
 set nocompatible
+set nowrap
 
 packadd minpac
 call minpac#init()
@@ -27,4 +28,4 @@ command! PackClean  call minpac#clean()
 command! PackStatus call minpac#status()
 EOF
 
-echo vim --clean \"+set runtimepath^=\$PWD/$dir_fundamental\" \"+set packpath^=\$PWD/$dir_fundamental\" \"+source \$PWD/$file_init\"
+echo vim --clean \"+set runtimepath^=\$PWD/$dir_fundamental\" \"+set packpath^=\$PWD/$dir_fundamental\" \"+source \$PWD/$file_init\" -i \"\$PWD/.viminfo\"

@@ -4,3 +4,8 @@
 *.rej
 tags
 debug/
+.viminfo
+
+# testing
+autoload/mylib.vim
+plugin/myplugin.vim
