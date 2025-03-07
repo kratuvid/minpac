@@ -8,4 +8,5 @@ debug/
 
 # testing
 autoload/mylib.vim
+autoload/mylib2.vim
 plugin/myplugin.vim

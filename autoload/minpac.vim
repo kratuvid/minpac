@@ -128,7 +128,7 @@ function! minpac#status(...)
   call s:ensure_initialization()
   let l:opt = extend(copy(get(a:000, 0, {})),
         \ {'open': g:minpac#opt.status_open}, 'keep')
-  return minpac#status#get(l:opt)
+  return minpac#status#Get(l:opt)
 endfunction
 
 
