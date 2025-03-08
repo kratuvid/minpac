@@ -5,6 +5,8 @@
 tags
 debug/
 .viminfo
+test/test_result.log
+test/messages
 
 # testing
 autoload/mylib.vim

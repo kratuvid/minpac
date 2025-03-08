@@ -88,11 +88,11 @@ function! minpac#impl#system(cmds) abort
   let l:ret = -1
   let l:quote_cmds = s:quote_cmds(a:cmds)
   call s:echom_verbose(4, '', 'system: cmds=' . string(l:quote_cmds))
-  let l:job = minpac#job#start(l:quote_cmds,
+  let l:job = minpac#job#Start(l:quote_cmds,
         \ {'on_stdout': {id, mes, ev -> extend(l:out, mes)}})
   if l:job > 0
     " It worked!
-    let l:ret = minpac#job#wait([l:job])[0]
+    let l:ret = minpac#job#Wait([l:job])[0]
     sleep 5m    " Wait for out_cb. (not sure this is enough.)
   endif
   return [l:ret, l:out]
@@ -417,7 +417,7 @@ endfunction
 function! s:start_job_core(cmds, name, seq) abort
   let l:quote_cmds = s:quote_cmds(a:cmds)
   call s:echom_verbose(4, '', 'start_job: cmds=' . string(l:quote_cmds))
-  let l:job = minpac#job#start(l:quote_cmds, {
+  let l:job = minpac#job#Start(l:quote_cmds, {
         \ 'on_stderr': function('s:job_err_cb'),
         \ 'on_exit': function('s:job_exit_cb'),
         \ 'name': a:name, 'seq': a:seq
@@ -743,7 +743,7 @@ endfunction
 function! minpac#impl#abort() abort
   let s:jobqueue = []
   for l:job in s:joblist
-    call minpac#job#stop(l:job)
+    call minpac#job#Stop(l:job)
   endfor
   let s:joblist = []
   let s:remain_plugins = 0

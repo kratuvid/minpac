@@ -532,3 +532,4 @@ VIM License
 - [ ] Quit using traditional autoload syntax '#', and use modern 'import autoload ...'
 - [ ] Use more of echoerr
 - [ ] Is g: necessary to reference autoload variables?
+- [ ] Migrate tests to Vim9script?

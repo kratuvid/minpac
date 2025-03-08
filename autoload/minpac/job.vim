@@ -36,10 +36,11 @@ const job_type_nvimjob = 'nvimjob'
 const job_type_vimjob = 'vimjob'
 const job_error_unsupported_job_type = -2   # unsupported job type
 
-def JobSupportedTypes()
+def JobSupportedTypes(): list<string>
   var supported_types = []
   if has('nvim')
-    supported_types += [job_type_nvimjob]
+    throw "nvimjob unimpl"
+    # supported_types += [job_type_nvimjob]
   endif
   if !has('nvim') && has('job') && has('channel') && has('lambda')
     supported_types += [job_type_vimjob]
@@ -47,23 +48,35 @@ def JobSupportedTypes()
   return supported_types
 enddef
 
-def JobSupportsType(type: string)
+def JobSupportsType(type: string): bool
   return index(JobSupportedTypes(), type) >= 0
 enddef
 
-def OutCb(jobid: number, opts: dict<any>, job: channel, data: string)
+def Debug(name: string, ...rest: list<any>)
+  if false
+  echom 'Name: ' .. name
+  for i in range(rest->len())
+    echom printf('#%d: %s of type %s', i, string(rest[i]), typename(rest[i]))
+  endfor
+  endif
+enddef
+
+def OutCb(jobid: number, opts: dict<any>, ch: channel, data: string)
+  Debug('out_cb', jobid, opts, ch, data)
   if has_key(opts, 'on_stdout')
     opts.on_stdout(jobid, split(data, "\n", 1), 'stdout')
   endif
 enddef
 
-def ErrCb(jobid: number, opts: dict<any>, job: channel, data: string)
+def ErrCb(jobid: number, opts: dict<any>, ch: channel, data: string)
+  Debug('err_cb', jobid, opts, ch, data)
   if has_key(opts, 'on_stderr')
     opts.on_stderr(jobid, split(data, "\n", 1), 'stderr')
   endif
 enddef
 
-def ExitCb(jobid: number, opts: dict<any>, job: channel, status: number)
+def ExitCb(jobid: number, opts: dict<any>, job: job, status: number)
+  Debug('exit_cb', jobid, opts, job, status)
   if has_key(opts, 'on_exit')
     opts.on_exit(jobid, status, 'exit')
   endif
@@ -127,6 +140,7 @@ def JobStart(cmd: list<string>, opts: dict<any>): number
     return job_error_unsupported_job_type
   endif
 
+  var jobid = -1
   if jobtype == job_type_nvimjob
     throw "nvimjob unimplemented"
     # var job = jobstart(cmd, {
@@ -145,7 +159,7 @@ def JobStart(cmd: list<string>, opts: dict<any>): number
     # jobs[jobid].job = job
   elseif jobtype == job_type_vimjob
     jobidseq += 1
-    const jobid = jobidseq
+    jobid = jobidseq
     var job  = job_start(cmd, {
       'out_cb': function('OutCb', [jobid, opts]),
       'err_cb': function('ErrCb', [jobid, opts]),
@@ -210,7 +224,7 @@ def FlushVimSendraw(jobid: number, timer: number)
   endif
 enddef
 
-def JobWaitSingle(jobid: number, _timeout: float, start: number): number
+def JobWaitSingle(jobid: number, _timeout: number, start: list<number>): number
   if !has_key(jobs, jobid)
     return -3
   endif
@@ -239,7 +253,7 @@ def JobWaitSingle(jobid: number, _timeout: float, start: number): number
   return -1
 enddef
 
-def JobWait(jobids: list<number>, timeout: float)
+def JobWait(jobids: list<number>, timeout: number): list<number>
   const start = reltime()
   var exitcode = 0
   var ret = []
@@ -252,16 +266,23 @@ def JobWait(jobids: list<number>, timeout: float)
   return ret
 enddef
 
-# public apis {{{
-def JobWait2(jobids: list<number>, ...rest: list<any>)
+# Public APIs {{{
+export def Wait(jobids: list<number>, ...rest: list<any>): list<number>
   const timeout = get(rest, 0, -1)
   return JobWait(jobids, timeout)
 enddef
 
-g:minpac#job#start = JobStart
-g:minpac#job#stop = JobStop
-g:minpac#job#send = JobSend
-g:minpac#job#wait = JobWait2
+export def Start(cmd: list<string>, opts: dict<any>): number
+  return JobStart(cmd, opts)
+enddef
+
+export def Stop(jobid: number)
+  return JobStop(rest)
+enddef
+
+export def Send(jobid: number, data: string)
+  return JobSend(rest)
+enddef
 # }}}
 
 # vim: set ts=8 sw=2 et:
