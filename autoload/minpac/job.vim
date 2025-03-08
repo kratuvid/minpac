@@ -51,180 +51,183 @@ def JobSupportsType(type: string)
   return index(JobSupportedTypes(), type) >= 0
 enddef
 
-# NOTE: RESTART HERE!
-def OutCb(jobid: number, opts: dict<any>, job, data)
+def OutCb(jobid: number, opts: dict<any>, job: channel, data: string)
   if has_key(opts, 'on_stdout')
-    call opts.on_stdout(jobid, split(data, "\n", 1), 'stdout')
+    opts.on_stdout(jobid, split(data, "\n", 1), 'stdout')
   endif
 enddef
 
-function! s:err_cb(jobid, opts, job, data) abort
-  if has_key(a:opts, 'on_stderr')
-    call a:opts.on_stderr(a:jobid, split(a:data, "\n", 1), 'stderr')
+def ErrCb(jobid: number, opts: dict<any>, job: channel, data: string)
+  if has_key(opts, 'on_stderr')
+    opts.on_stderr(jobid, split(data, "\n", 1), 'stderr')
   endif
-endfunction
+enddef
 
-function! s:exit_cb(jobid, opts, job, status) abort
-  if has_key(a:opts, 'on_exit')
-    call a:opts.on_exit(a:jobid, a:status, 'exit')
+def ExitCb(jobid: number, opts: dict<any>, job: channel, status: number)
+  if has_key(opts, 'on_exit')
+    opts.on_exit(jobid, status, 'exit')
   endif
-  if has_key(s:jobs, a:jobid)
-    call remove(s:jobs, a:jobid)
+  if has_key(jobs, jobid)
+    remove(jobs, jobid)
   endif
-endfunction
+enddef
 
-function! s:on_stdout(jobid, data, event) abort
-  if has_key(s:jobs, a:jobid)
-    let l:jobinfo = s:jobs[a:jobid]
-    if has_key(l:jobinfo.opts, 'on_stdout')
-      call l:jobinfo.opts.on_stdout(a:jobid, a:data, a:event)
+def OnStdout(jobid: number, data: list<any>, event: string)
+  if has_key(jobs, jobid)
+    const jobinfo = jobs[jobid]
+    if has_key(jobinfo.opts, 'on_stdout')
+      jobinfo.opts.on_stdout(jobid, data, event)
     endif
   endif
-endfunction
+enddef
 
-function! s:on_stderr(jobid, data, event) abort
-  if has_key(s:jobs, a:jobid)
-    let l:jobinfo = s:jobs[a:jobid]
-    if has_key(l:jobinfo.opts, 'on_stderr')
-      call l:jobinfo.opts.on_stderr(a:jobid, a:data, a:event)
+def OnStderr(jobid: number, data: list<any>, event: string)
+  if has_key(jobs, jobid)
+    const jobinfo = jobs[jobid]
+    if has_key(jobinfo.opts, 'on_stderr')
+      jobinfo.opts.on_stderr(jobid, data, event)
     endif
   endif
-endfunction
+enddef
 
-function! s:on_exit(jobid, status, event) abort
-  if has_key(s:jobs, a:jobid)
-    let l:jobinfo = s:jobs[a:jobid]
-    if has_key(l:jobinfo.opts, 'on_exit')
-      call l:jobinfo.opts.on_exit(a:jobid, a:status, a:event)
+def OnExit(jobid: number, status: number, event: string)
+  if has_key(jobs, jobid)
+    const jobinfo = jobs[jobid]
+    if has_key(jobinfo.opts, 'on_exit')
+      jobinfo.opts.on_exit(jobid, status, event)
     endif
   endif
-endfunction
+enddef
 
-function! s:job_start(cmd, opts) abort
-  let l:jobtypes = JobSupportedTypes()
-  let l:jobtype = ''
+def JobStart(cmd: list<string>, opts: dict<any>): number
+  var jobtypes = JobSupportedTypes()
+  var jobtype = ''
 
-  if has_key(a:opts, 'type')
-    if type(a:opts.type) == type('')
-      if !JobSupportsType(a:opts.type)
-        return s:job_error_unsupported_job_type
+  if has_key(opts, 'type')
+    if type(opts.type) == v:t_string
+      if !JobSupportsType(opts.type)
+        return job_error_unsupported_job_type
       endif
-      let l:jobtype = a:opts.type
+      jobtype = opts.type
     else
-      let l:jobtypes = a:opts.type
+      jobtypes = opts.type
     endif
   endif
 
-  if empty(l:jobtype)
-    " find the best jobtype
-    for l:jobtype2 in l:jobtypes
-      if JobSupportsType(l:jobtype2)
-        let l:jobtype = l:jobtype2
+  if empty(jobtype)
+    # find the best jobtype
+    for jobtype2 in jobtypes
+      if JobSupportsType(jobtype2)
+        jobtype = jobtype2
       endif
     endfor
   endif
 
-  if l:jobtype ==? ''
-    return s:job_error_unsupported_job_type
+  if jobtype ==? ''
+    return job_error_unsupported_job_type
   endif
 
-  if l:jobtype == s:job_type_nvimjob
-    let l:job = jobstart(a:cmd, {
-          \ 'on_stdout': function('s:on_stdout'),
-          \ 'on_stderr': function('s:on_stderr'),
-          \ 'on_exit': function('s:on_exit'),
-          \})
-    if l:job <= 0
-      return l:job
-    endif
-    let l:jobid = l:job " nvimjobid and internal jobid is same
-    let s:jobs[l:jobid] = {
-          \ 'type': s:job_type_nvimjob,
-          \ 'opts': a:opts,
-          \ }
-    let s:jobs[l:jobid].job = l:job
-  elseif l:jobtype == s:job_type_vimjob
-    let s:jobidseq = s:jobidseq + 1
-    let l:jobid = s:jobidseq
-    let l:job  = job_start(a:cmd, {
-          \ 'out_cb': function('OutCb', [l:jobid, a:opts]),
-          \ 'err_cb': function('s:err_cb', [l:jobid, a:opts]),
-          \ 'exit_cb': function('s:exit_cb', [l:jobid, a:opts]),
-          \ 'mode': 'raw',
-          \})
-    if job_status(l:job) !=? 'run'
+  if jobtype == job_type_nvimjob
+    throw "nvimjob unimplemented"
+    # var job = jobstart(cmd, {
+    #   'on_stdout': function('OnStdout'),
+    #   'on_stderr': function('OnStderr'),
+    #   'on_exit': function('OnExit')
+    # })
+    # if job <= 0
+    #   return job
+    # endif
+    # const jobid = job # nvimjobid and internal jobid is same
+    # jobs[jobid] = {
+    #        'type': s:job_type_nvimjob,
+    #        'opts': a:opts,
+    #        }
+    # jobs[jobid].job = job
+  elseif jobtype == job_type_vimjob
+    jobidseq += 1
+    const jobid = jobidseq
+    var job  = job_start(cmd, {
+      'out_cb': function('OutCb', [jobid, opts]),
+      'err_cb': function('ErrCb', [jobid, opts]),
+      'exit_cb': function('ExitCb', [jobid, opts]),
+      'mode': 'raw',
+    })
+    if job_status(job) !=? 'run'
       return -1
     endif
-    let s:jobs[l:jobid] = {
-          \ 'type': s:job_type_vimjob,
-          \ 'opts': a:opts,
-          \ 'job': l:job,
-          \ 'channel': job_getchannel(l:job),
-          \ 'buffer': ''
-          \ }
+    jobs[jobid] = {
+      'type': job_type_vimjob,
+      'opts': opts,
+      'job': job,
+      'channel': job_getchannel(job),
+      'buffer': ''
+    }
   else
-    return s:job_error_unsupported_job_type
+    return job_error_unsupported_job_type
   endif
 
-  return l:jobid
-endfunction
+  return jobid
+enddef
 
-function! s:job_stop(jobid) abort
-  if has_key(s:jobs, a:jobid)
-    let l:jobinfo = s:jobs[a:jobid]
-    if l:jobinfo.type == s:job_type_nvimjob
-      call jobstop(a:jobid)
-    elseif l:jobinfo.type == s:job_type_vimjob
-      call job_stop(s:jobs[a:jobid].job)
+def JobStop(jobid: number)
+  if has_key(jobs, jobid)
+    const jobinfo = jobs[jobid]
+    if jobinfo.type == job_type_nvimjob
+      throw "nvimjob unsupported"
+      # call jobstop(a:jobid)
+    elseif jobinfo.type == job_type_vimjob
+      job_stop(jobs[jobid].job)
     endif
-    if has_key(s:jobs, a:jobid)
-      call remove(s:jobs, a:jobid)
+    if has_key(jobs, jobid)
+      remove(jobs, jobid)
     endif
   endif
-endfunction
+enddef
 
-function! s:job_send(jobid, data) abort
-  let l:jobinfo = s:jobs[a:jobid]
-  if l:jobinfo.type == s:job_type_nvimjob
-    call jobsend(a:jobid, a:data)
-  elseif l:jobinfo.type == s:job_type_vimjob
-    let l:jobinfo.buffer .= a:data
-    call s:flush_vim_sendraw(a:jobid, v:null)
+def JobSend(jobid: number, data: string)
+  const jobinfo = jobs[jobid]
+  if jobinfo.type == job_type_nvimjob
+    throw "nvimjob unsupported"
+    # call jobsend(a:jobid, a:data)
+  elseif jobinfo.type == job_type_vimjob
+    const jobinfo.buffer ..= data
+    FlushVimSendraw(jobid, -1)
   endif
-endfunction
+enddef
 
-function! s:flush_vim_sendraw(jobid, timer) abort
-  " https://github.com/vim/vim/issues/2548
-  " https://github.com/natebosch/vim-lsc/issues/67#issuecomment-357469091
-  let l:jobinfo = s:jobs[a:jobid]
-  if len(l:jobinfo.buffer) <= 1024
-    call ch_sendraw(l:jobinfo.channel, l:jobinfo.buffer)
-    let l:jobinfo.buffer = ''
+def FlushVimSendraw(jobid: number, timer: number)
+  # https://github.com/vim/vim/issues/2548
+  # https://github.com/natebosch/vim-lsc/issues/67#issuecomment-357469091
+  const jobinfo = jobs[jobid]
+  if len(jobinfo.buffer) <= 1024
+    ch_sendraw(jobinfo.channel, jobinfo.buffer)
+    jobinfo.buffer = ''
   else
-    let l:to_send = l:jobinfo.buffer[:1023]
-    let l:jobinfo.buffer = l:jobinfo.buffer[1024:]
-    call ch_sendraw(l:jobinfo.channel, l:to_send)
-    call timer_start(1, function('s:flush_vim_sendraw', [a:jobid]))
+    const to_send = jobinfo.buffer[:1023]
+    const jobinfo.buffer = jobinfo.buffer[1024:]
+    ch_sendraw(jobinfo.channel, to_send)
+    timer_start(1, function('FlushVimSendraw', [jobid]))
   endif
-endfunction
+enddef
 
-function! s:job_wait_single(jobid, timeout, start) abort
-  if !has_key(s:jobs, a:jobid)
+def JobWaitSingle(jobid: number, _timeout: float, start: number): number
+  if !has_key(jobs, jobid)
     return -3
   endif
 
-  let l:jobinfo = s:jobs[a:jobid]
-  if l:jobinfo.type == s:job_type_nvimjob
-    let l:timeout = a:timeout - reltimefloat(reltime(a:start)) * 1000
-    return jobwait([a:jobid], float2nr(l:timeout))[0]
-  elseif l:jobinfo.type == s:job_type_vimjob
-    let l:timeout = a:timeout / 1000.0
+  const jobinfo = jobs[jobid]
+  if jobinfo.type == job_type_nvimjob
+    throw "nvimjob unimpl"
+    # const timeout = timeout - reltimefloat(reltime(start)) * 1000
+    # return jobwait([a:jobid], float2nr(l:timeout))[0]
+  elseif jobinfo.type == job_type_vimjob
+    const timeout = _timeout / 1000.0
     try
-      while l:timeout < 0 || reltimefloat(reltime(a:start)) < l:timeout
-        let l:info = job_info(l:jobinfo.job)
-        if l:info.status ==# 'dead'
-          return l:info.exitval
-        elseif l:info.status ==# 'fail'
+      while timeout < 0 || reltimefloat(reltime(start)) < timeout
+        const info = job_info(jobinfo.job)
+        if info.status == 'dead'
+          return info.exitval
+        elseif info.status == 'fail'
           return -3
         endif
         sleep 1m
@@ -234,38 +237,31 @@ function! s:job_wait_single(jobid, timeout, start) abort
     endtry
   endif
   return -1
-endfunction
+enddef
 
-function! s:job_wait(jobids, timeout) abort
-  let l:start = reltime()
-  let l:exitcode = 0
-  let l:ret = []
-  for l:jobid in a:jobids
-    if l:exitcode != -2  " Not interrupted.
-      let l:exitcode = s:job_wait_single(l:jobid, a:timeout, l:start)
+def JobWait(jobids: list<number>, timeout: float)
+  const start = reltime()
+  var exitcode = 0
+  var ret = []
+  for jobid in jobids
+    if exitcode != -2  # Not interrupted.
+      exitcode = JobWaitSingle(jobid, timeout, start)
     endif
-    let l:ret += [l:exitcode]
+    ret += [exitcode]
   endfor
-  return l:ret
-endfunction
+  return ret
+enddef
 
-" public apis {{{
-function! minpac#job#start(cmd, opts) abort
-  return s:job_start(a:cmd, a:opts)
-endfunction
+# public apis {{{
+def JobWait2(jobids: list<number>, ...rest: list<any>)
+  const timeout = get(rest, 0, -1)
+  return JobWait(jobids, timeout)
+enddef
 
-function! minpac#job#stop(jobid) abort
-  call s:job_stop(a:jobid)
-endfunction
-
-function! minpac#job#send(jobid, data) abort
-  call s:job_send(a:jobid, a:data)
-endfunction
-
-function! minpac#job#wait(jobids, ...) abort
-  let l:timeout = get(a:000, 0, -1)
-  return s:job_wait(a:jobids, l:timeout)
-endfunction
-" }}}
+g:minpac#job#start = JobStart
+g:minpac#job#stop = JobStop
+g:minpac#job#send = JobSend
+g:minpac#job#wait = JobWait2
+# }}}
 
 # vim: set ts=8 sw=2 et:
