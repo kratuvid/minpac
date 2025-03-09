@@ -14,14 +14,16 @@ mkdir -p $dir_fundamental/pack/minpac/opt
 ln -s $PWD $PWD/$dir_fundamental/pack/minpac/opt/
 
 cat > $file_init <<- EOF
+vim9script
+
 set nocompatible
 set nowrap
 
 packadd minpac
-call minpac#init()
-call minpac#add('k-takata/minpac', {'type': 'opt'})
-call minpac#add('vim-jp/syntax-vim-ex')
-call minpac#add('tyru/open-browser.vim')
+minpac#init()
+minpac#add('k-takata/minpac', {'type': 'opt'})
+minpac#add('vim-jp/syntax-vim-ex')
+minpac#add('tyru/open-browser.vim')
 
 command! PackUpdate call minpac#update()
 command! PackClean  call minpac#clean()

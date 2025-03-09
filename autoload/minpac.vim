@@ -1,153 +1,154 @@
-" ---------------------------------------------------------------------
-" minpac: A minimal package manager for Vim 8+ (and Neovim)
-"
-" Maintainer:   Ken Takata
-" Last Change:  2020-08-22
-" License:      VIM License
-" URL:          https://github.com/k-takata/minpac
-" ---------------------------------------------------------------------
+vim9script
+# ---------------------------------------------------------------------
+# minpac: A minimal package manager for Vim 8+ (and Neovim)
+#
+# Maintainer:   Ken Takata
+# Last Change:  2020-08-22
+# License:      VIM License
+# URL:          https://github.com/k-takata/minpac
+# ---------------------------------------------------------------------
 
-" Get a list of package/plugin directories.
-function! minpac#getpackages(...)
-  return call("minpac#impl#GetPackages", a:000)
-endfunction
+# Get a list of package/plugin directories.
+export def GetPackages(...rest: list<any>): list<string>
+  return call("minpac#impl#GetPackages", rest)
+enddef
 
 
-function! s:ensure_initialization() abort
+def EnsureInitialization()
   if !exists('g:minpac#opt')
     echohl WarningMsg
     echom 'Minpac has not been initialized. Use the default values.'
     echohl None
-    call minpac#init()
+    call Init()
   endif
-endfunction
+enddef
 
-" Initialize minpac.
-function! minpac#init(...) abort
-  let l:opt = extend(copy(get(a:000, 0, {})),
-        \ {'dir': '', 'package_name': 'minpac', 'git': 'git', 'depth': 1,
-        \  'jobs': 8, 'verbose': 2, 'confirm': v:true,
-        \  'progress_open': 'horizontal', 'status_open': 'horizontal',
-        \  'status_auto': v:false}, 'keep')
+# Initialize minpac.
+export def Init(...rest: list<any>)
+  var opt = extend(copy(get(rest, 0, {})),
+    {'dir': '', 'package_name': 'minpac', 'git': 'git', 'depth': 1,
+      'jobs': 8, 'verbose': 2, 'confirm': true,
+      'progress_open': 'horizontal', 'status_open': 'horizontal',
+      'status_auto': false}, 'keep')
 
-  let g:minpac#opt = l:opt
-  let g:minpac#pluglist = {}
+  g:minpac#opt = opt
+  g:minpac#pluglist = {}
 
-  let l:packdir = l:opt.dir
-  if l:packdir ==# ''
-    " If 'dir' is not specified, the first directory of 'packpath' is used.
-    let l:packdir = split(&packpath, ',')[0]
+  var packdir = opt.dir
+  if packdir->empty()
+    # If 'dir' is not specified, the first directory of 'packpath' is used.
+    packdir = split(&packpath, ',')[0]
   endif
 
-  let l:opt.minpac_dir = l:packdir . '/pack/' . l:opt.package_name
-  let l:opt.minpac_start_dir = l:opt.minpac_dir . '/start'
-  let l:opt.minpac_opt_dir = l:opt.minpac_dir . '/opt'
+  opt.minpac_dir = packdir .. '/pack/' .. opt.package_name
+  opt.minpac_start_dir = opt.minpac_dir .. '/start'
+  opt.minpac_opt_dir = opt.minpac_dir .. '/opt'
 
-  " directories for 'subdir'
-  let l:opt.minpac_dir_sub = l:packdir . '/pack/' . l:opt.package_name . '-sub'
-  let l:opt.minpac_start_dir_sub = l:opt.minpac_dir_sub . '/start'
-  let l:opt.minpac_opt_dir_sub = l:opt.minpac_dir_sub . '/opt'
+  # directories for 'subdir'
+  opt.minpac_dir_sub = packdir .. '/pack/' .. opt.package_name .. '-sub'
+  opt.minpac_start_dir_sub = opt.minpac_dir_sub .. '/start'
+  opt.minpac_opt_dir_sub = opt.minpac_dir_sub .. '/opt'
 
-  if !isdirectory(l:packdir)
-    echoerr 'Pack directory not available: ' . l:packdir
+  if !isdirectory(packdir)
+    echoerr 'Pack directory not available: ' .. packdir
     return
   endif
-  if !isdirectory(l:opt.minpac_start_dir)
-    call mkdir(l:opt.minpac_start_dir, 'p')
+  if !isdirectory(opt.minpac_start_dir)
+    mkdir(opt.minpac_start_dir, 'p')
   endif
-  if !isdirectory(l:opt.minpac_opt_dir)
-    call mkdir(l:opt.minpac_opt_dir, 'p')
+  if !isdirectory(opt.minpac_opt_dir)
+    mkdir(opt.minpac_opt_dir, 'p')
   endif
-endfunction
+enddef
 
 
-" Register the specified plugin.
-function! minpac#add(plugname, ...) abort
-  call s:ensure_initialization()
-  let l:opt = extend(copy(get(a:000, 0, {})),
-        \ {'name': '', 'type': 'start', 'depth': g:minpac#opt.depth,
-        \  'frozen': v:false, 'branch': '', 'rev': '', 'do': '', 'subdir': '',
-        \  'pullmethod': ''
-        \ }, 'keep')
+# Register the specified plugin.
+export def Add(plugname: string, ...rest: list<any>)
+  EnsureInitialization()
+  var opt = extend(copy(get(rest, 0, {})),
+    {'name': '', 'type': 'start', 'depth': g:minpac#opt.depth,
+      'frozen': false, 'branch': '', 'rev': '', 'do': '', 'subdir': '',
+      'pullmethod': ''}, 'keep')
 
-  " URL
-  if a:plugname =~? '^[-._0-9a-z]\+\/[-._0-9a-z]\+$'
-    let l:opt.url = 'https://github.com/' . a:plugname . '.git'
+  # URL
+  if plugname =~? '^[-._0-9a-z]\+\/[-._0-9a-z]\+$'
+    opt.url = 'https://github.com/' .. plugname .. '.git'
   else
-    let l:opt.url = a:plugname
+    opt.url = plugname
   endif
 
-  " Name of the plugin
-  if l:opt.name ==# ''
-    let l:opt.name = matchstr(l:opt.url, '[/\\]\zs[^/\\]\+$')
-    let l:opt.name = substitute(l:opt.name, '\C\.git$', '', '')
+  # Name of the plugin
+  if opt.name == ''
+    opt.name = matchstr(opt.url, '[/\\]\zs[^/\\]\+$')
+    opt.name = substitute(opt.name, '\C\.git$', '', '')
   endif
-  if l:opt.name ==# ''
-    echoerr 'Cannot extract the plugin name. (' . a:plugname . ')'
+  if opt.name == ''
+    echoerr 'Cannot extract the plugin name. (' .. plugname .. ')'
     return
   endif
 
-  " Loading type / Local directory
-  if l:opt.type ==# 'start'
-    let l:opt.dir = g:minpac#opt.minpac_start_dir . '/' . l:opt.name
-  elseif l:opt.type ==# 'opt'
-    let l:opt.dir = g:minpac#opt.minpac_opt_dir . '/' . l:opt.name
+  # Loading type / Local directory
+  if opt.type == 'start'
+    opt.dir = g:minpac#opt.minpac_start_dir .. '/' .. opt.name
+  elseif opt.type == 'opt'
+    opt.dir = g:minpac#opt.minpac_opt_dir .. '/' .. opt.name
   else
-    echoerr a:plugname . ": Wrong type (must be 'start' or 'opt'): " . l:opt.type
+    echoerr plugname .. ": Wrong type (must be 'start' or 'opt'): " .. opt.type
     return
   endif
 
-  " Check pullmethod
-  if l:opt.pullmethod !=# '' && l:opt.pullmethod !=# 'autostash'
-    echoerr a:plugname . ": Wrong pullmethod (must be empty or 'autostash'): " . l:opt.pullmethod
+  # Check pullmethod
+  if opt.pullmethod != '' && opt.pullmethod != 'autostash'
+    echoerr plugname .. ": Wrong pullmethod (must be empty or 'autostash'): " .. opt.pullmethod
     return
   endif
 
-  " Initialize the status
-  let l:opt.stat = {'errcode': 0, 'lines': [], 'prev_rev': '', 'installed': -1}
+  # Initialize the status
+  opt.stat = {'errcode': 0, 'lines': [], 'prev_rev': '', 'installed': -1}
 
-  " Add to pluglist
-  let g:minpac#pluglist[l:opt.name] = l:opt
-endfunction
-
-
-" Update all or specified plugin(s).
-function! minpac#update(...)
-  call s:ensure_initialization()
-  " call minpac#impl#Update()
-  return call("minpac#impl#Update", a:000)
-endfunction
+  # Add to pluglist
+  g:minpac#pluglist[opt.name] = opt
+enddef
 
 
-" Remove plugins that are not registered.
-function! minpac#clean(...)
-  call s:ensure_initialization()
-  return call("minpac#impl#Clean", a:000)
-endfunction
-
-function! minpac#status(...)
-  call s:ensure_initialization()
-  let l:opt = extend(copy(get(a:000, 0, {})),
-        \ {'open': g:minpac#opt.status_open}, 'keep')
-  return minpac#status#Get(l:opt)
-endfunction
+# Update all or specified plugin(s).
+export def Update(...rest: list<any>): bool
+  EnsureInitialization()
+  return call("minpac#impl#Update", rest)
+enddef
 
 
-" Get information of specified plugin. Mainly for debugging.
-function! minpac#getpluginfo(name)
-  call s:ensure_initialization()
-  return g:minpac#pluglist[a:name]
-endfunction
+# Remove plugins that are not registered.
+export def Clean(...rest: list<any>): bool
+  EnsureInitialization()
+  return call("minpac#impl#Clean", rest)
+enddef
+
+export def Status(...rest: list<any>)
+  EnsureInitialization()
+  const opt = extend(copy(get(rest, 0, {})),
+    {'open': g:minpac#opt.status_open}, 'keep')
+  # return minpac#status#Get(opt)
+  minpac#status#Get(opt)
+enddef
 
 
-" Get a list of plugin information. Mainly for debugging.
-function! minpac#getpluglist()
+# Get information of specified plugin. Mainly for debugging.
+export def GetPlugInfo(name: string)
+  EnsureInitialization()
+  return g:minpac#pluglist[name]
+enddef
+
+
+# Get a list of plugin information. Mainly for debugging.
+export def GetPlugList()
   return g:minpac#pluglist
-endfunction
+enddef
 
-" Abort updating the plugins.
-function! minpac#abort()
-  return minpac#impl#Abort()
-endfunction
+# Abort updating the plugins.
+export def Abort()
+  # return minpac#impl#Abort()
+  minpac#impl#Abort()
+enddef
 
-" vim: set ts=8 sw=2 et:
+# vim: set ts=8 sw=2 et:

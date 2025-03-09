@@ -718,7 +718,7 @@ def MatchPlugin(dir: string, packname: string, plugnames: list<string>): bool
 enddef
 
 # Remove plugins that are not registered.
-export def Clean(...rest: list<any>)
+export def Clean(...rest: list<any>): bool
   var plugin_dirs = minpac#getpackages(g:minpac#opt.package_name)
     + minpac#getpackages(g:minpac#opt.package_name .. '-sub')
 
@@ -732,7 +732,7 @@ export def Clean(...rest: list<any>)
       names = rest[0]
     else
       echoerr 'Wrong parameter type. Must be a String or a List of Strings.'
-      return
+      return false
     endif
     to_remove = filter(plugin_dirs,
       (_, value) => MatchPlugin(value, g:minpac#opt.package_name, names))
@@ -747,7 +747,7 @@ export def Clean(...rest: list<any>)
 
   if len(to_remove) == 0
     echo 'Already clean.'
-    return
+    return true
   endif
 
   # Show the list of plugins to be removed.
@@ -757,9 +757,9 @@ export def Clean(...rest: list<any>)
 
   const dir = (len(to_remove) > 1) ? 'directories' : 'directory'
 
+  var err = 0
   if !g:minpac#opt.confirm || input('Removing the above ' .. dir .. '. [y/N]? ') =~? '^y'
     echo "\n"
-    var err = 0
     for item in to_remove
       if delete(item, 'rf') != 0
         echohl ErrorMsg
@@ -774,6 +774,8 @@ export def Clean(...rest: list<any>)
   else
     echo "\n" .. 'Not cleaned.'
   endif
+
+  return err == 0
 enddef
 
 export def IsUpdateRan(): bool
