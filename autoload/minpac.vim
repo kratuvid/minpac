@@ -134,14 +134,14 @@ enddef
 
 
 # Get information of specified plugin. Mainly for debugging.
-export def GetPlugInfo(name: string)
+export def GetPlugInfo(name: string): dict<any>
   EnsureInitialization()
   return g:minpac#pluglist[name]
 enddef
 
 
 # Get a list of plugin information. Mainly for debugging.
-export def GetPlugList()
+export def GetPlugList(): dict<any>
   return g:minpac#pluglist
 enddef
 
