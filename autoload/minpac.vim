@@ -9,7 +9,7 @@
 
 " Get a list of package/plugin directories.
 function! minpac#getpackages(...)
-  return call("minpac#impl#getpackages", a:000)
+  return call("minpac#impl#GetPackages", a:000)
 endfunction
 
 
@@ -114,14 +114,15 @@ endfunction
 " Update all or specified plugin(s).
 function! minpac#update(...)
   call s:ensure_initialization()
-  return call("minpac#impl#update", a:000)
+  " call minpac#impl#Update()
+  return call("minpac#impl#Update", a:000)
 endfunction
 
 
 " Remove plugins that are not registered.
 function! minpac#clean(...)
   call s:ensure_initialization()
-  return call("minpac#impl#clean", a:000)
+  return call("minpac#impl#Clean", a:000)
 endfunction
 
 function! minpac#status(...)
@@ -146,7 +147,7 @@ endfunction
 
 " Abort updating the plugins.
 function! minpac#abort()
-  return minpac#impl#abort()
+  return minpac#impl#Abort()
 endfunction
 
 " vim: set ts=8 sw=2 et:

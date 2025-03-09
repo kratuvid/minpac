@@ -5,7 +5,7 @@
 tags
 debug/
 .viminfo
-test/test_result.log
+test/*.log
 test/messages
 
 # testing

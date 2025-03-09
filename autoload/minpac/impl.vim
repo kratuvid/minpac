@@ -1,756 +1,796 @@
-" ---------------------------------------------------------------------
-" minpac: A minimal package manager for Vim 8+ (and Neovim)
-"
-" Maintainer:   Ken Takata
-" Last Change:  2024-12-06
-" License:      VIM License
-" URL:          https://github.com/k-takata/minpac
-" ---------------------------------------------------------------------
+vim9script
+# ---------------------------------------------------------------------
+# minpac: A minimal package manager for Vim 8+ (and Neovim)
+#
+# Maintainer:   Ken Takata
+# Last Change:  2024-12-06
+# License:      VIM License
+# URL:          https://github.com/k-takata/minpac
+# ---------------------------------------------------------------------
 
-let s:joblist = []        " Jobs that are currently running.
-let s:jobqueue = []       " Jobs that are waiting to be started.
-let s:remain_plugins = 0
-let s:timer_id = -1
+var joblist = []        # Jobs that are currently running.
+var jobqueue = []       # Jobs that are waiting to be started.
+var remain_plugins = 0
+var timer_id = -1
 
-" Get a list of package/plugin directories.
-function! minpac#impl#getpackages(...) abort
-  let l:packname = get(a:000, 0, '')
-  let l:packtype = get(a:000, 1, '')
-  let l:plugname = get(a:000, 2, '')
-  let l:nameonly = get(a:000, 3, v:false)
+var updated_plugins = 0
+var installed_plugins = 0
+var Finish_update_hook: any
+var error_plugins = 0
 
-  if l:packname ==# '' | let l:packname = '*' | endif
-  if l:packtype ==# '' | let l:packtype = '*' | endif
-  if l:plugname ==# '' | let l:plugname = '*' | endif
+var save_more_to_set = false
+var save_more = false
 
-  if l:packtype ==# 'NONE'
-    let l:pat = 'pack/' . l:packname
+# vim9script
+# def F(a: number, b: string): number
+#   echo a .. ', ' .. b
+#   return 100
+# enddef
+# g:abc#xyz#f = F
+# echo F(-50, 'hobo')
+# echo abc#xyz#f(-500, 'hobov2')
+# echo string(F)
+# echo string(g:abc#xyz#f)
+# echo F == g:abc#xyz#f
+
+# Get a list of package/plugin directories.
+export def GetPackages(...rest: list<any>): list<string>
+  var packname = get(rest, 0, '')
+  var packtype = get(rest, 1, '')
+  var plugname = get(rest, 2, '')
+  const nameonly = get(rest, 3, false)
+
+  if packname->empty() | packname = '*' | endif
+  if packtype->empty() | packtype = '*' | endif
+  if plugname->empty() | plugname = '*' | endif
+
+  var pat = ''
+  if packtype == 'NONE'
+    pat = 'pack/' .. packname
   else
-    let l:pat = 'pack/' . l:packname . '/' . l:packtype . '/' . l:plugname
+    pat = 'pack/' .. packname .. '/' .. packtype .. '/' .. plugname
   endif
 
-  let l:ret = filter(globpath(&packpath, l:pat, 0, 1), {-> isdirectory(v:val)})
-  if l:nameonly
-    call map(l:ret, {-> substitute(v:val, '^.*[/\\]', '', '')})
+  var ret = filter(globpath(&packpath, pat, 0, 1), (key, value) => isdirectory(value))
+  if nameonly
+    map(ret, (key, value) => substitute(value, '^.*[/\\]', '', ''))
   endif
-  return l:ret
-endfunction
+  return ret
+enddef
 
 
-function! s:echox_verbose(level, echocmd, type, msg) abort
-  if g:minpac#opt.verbose >= a:level
-    if g:minpac#opt.progress_open ==# 'none'
-      if a:type ==# 'warning'
+def EchoXVerbose(level: number, echocmd: string, type: string, msg: string)
+  if g:minpac#opt.verbose >= level
+    if g:minpac#opt.progress_open == 'none'
+      if type == 'warning'
         echohl WarningMsg
-      elseif a:type ==# 'error'
+      elseif type == 'error'
         echohl ErrorMsg
       endif
-      exec a:echocmd . " '" . substitute(a:msg, "'", "''", "g") . "'"
+      exec echocmd .. " '" .. substitute(msg, "'", "''", "g") .. "'"
       echohl None
     else
-      " call minpac#progress#add_msg(a:type, a:msg)
-      call minpac#progress#AddMsg(a:type, a:msg)
+      minpac#progress#AddMsg(type, msg)
     endif
   endif
-endfunction
+enddef
 
-function! s:echo_verbose(level, type, msg) abort
-  call s:echox_verbose(a:level, 'echo', a:type, a:msg)
-endfunction
+def EchoVerbose(level: number, type: string, msg: string)
+  EchoXVerbose(level, 'echo', type, msg)
+enddef
 
-function! s:echom_verbose(level, type, msg) abort
-  call s:echox_verbose(a:level, 'echom', a:type, a:msg)
-endfunction
+def EchoMVerbose(level: number, type: string, msg: string)
+  EchoXVerbose(level, 'echom', type, msg)
+enddef
 
-function! s:echoerr_verbose(level, msg) abort
-  call s:echox_verbose(a:level, 'echoerr', 'error', a:msg)
-endfunction
-
+def EchoErrVerbose(level: number, msg: string)
+  EchoXVerbose(level, 'echoerr', 'error', msg)
+enddef
 
 if has('win32')
-  function! s:quote_cmds(cmds) abort
-    " If space (or brace) is found, surround the argument with "".
-    " Assuming double quotations are not used elsewhere.
-    " (Brace needs to be quoted for msys2/git.)
-    return join(map(a:cmds,
-          \ {-> (v:val =~# '[ {]') ? '"' . v:val . '"' : v:val}), ' ')
-  endfunction
+  def QuoteCmds(cmds: list<string>): list<string>
+    # If space (or brace) is found, surround the argument with "".
+    # Assuming double quotations are not used elsewhere.
+    # (Brace needs to be quoted for msys2/git.)
+    return join(map(cmds, (key, value) => {
+      (value =~ '[ {]') ? '"' .. value .. '"' : value
+    }), ' ')
+  enddef
 else
-  function! s:quote_cmds(cmds) abort
-    return a:cmds
-  endfunction
+  def QuoteCmds(cmds: list<string>): list<string>
+    return cmds
+  enddef
 endif
 
-" Replacement for system().
-" This doesn't open an extra window on MS-Windows.
-function! minpac#impl#system(cmds) abort
-  let l:out = []
-  let l:ret = -1
-  let l:quote_cmds = s:quote_cmds(a:cmds)
-  call s:echom_verbose(4, '', 'system: cmds=' . string(l:quote_cmds))
-  let l:job = minpac#job#Start(l:quote_cmds,
-        \ {'on_stdout': {id, mes, ev -> extend(l:out, mes)}})
-  if l:job > 0
-    " It worked!
-    let l:ret = minpac#job#Wait([l:job])[0]
-    sleep 5m    " Wait for out_cb. (not sure this is enough.)
+# Replacement for system().
+# This doesn't open an extra window on MS-Windows.
+export def System(cmds: list<string>): list<any>
+  var out = []
+  var ret = -1
+  const quote_cmds = QuoteCmds(cmds)
+  EchoMVerbose(4, '', 'system: cmds=' .. string(quote_cmds))
+  const job = minpac#job#Start(quote_cmds, {
+    'on_stdout': (id, mes, ev) => extend(out, mes)
+  })
+  if job > 0
+    # It worked!
+    ret = minpac#job#Wait([job])[0]
+    sleep 5m    # Wait for out_cb. (not sure this is enough.)
   endif
-  return [l:ret, l:out]
-endfunction
+  return [ret, out]
+enddef
 
-" Execute git command on the specified plugin directory.
-function! s:exec_plugin_cmd(name, cmd, mes) abort
-  let l:pluginfo = g:minpac#pluglist[a:name]
-  let l:dir = l:pluginfo.dir
-  let l:res = minpac#impl#system([g:minpac#opt.git, '-C', l:dir]
-        \ + ['-c', 'core.fsmonitor=false'] + a:cmd)
-  if l:res[0] == 0 && len(l:res[1]) > 0
-    call s:echom_verbose(4, '', a:mes . ': ' . l:res[1][0])
-    return l:res[1][0]
+# Execute git command on the specified plugin directory.
+def ExecPluginCmd(name: string, cmd: list<string>, mes: string): string
+  const pluginfo = g:minpac#pluglist[name]
+  const dir = pluginfo.dir
+  const res = System([g:minpac#opt.git, '-C', dir]
+    + ['-c', 'core.fsmonitor=false'] + cmd)
+  if res[0] == 0 && len(res[1]) > 0
+    call EchoMVerbose(4, '', mes .. ': ' .. res[1][0])
+    return res[1][0]
   else
-    " Error
+    # Error
     return ''
   endif
-endfunction
+enddef
 
-" Get the revision of the specified plugin.
-function! minpac#impl#get_plugin_revision(name) abort
-  " let l:rev = minpac#git#get_revision(g:minpac#pluglist[a:name].dir)
-  let l:rev = minpac#git#GetRevision(g:minpac#pluglist[a:name].dir)
-  if l:rev != v:null
-    call s:echom_verbose(4, '', 'revision (' . a:name . '): ' . l:rev)
-    return l:rev
+# Get the revision of the specified plugin.
+export def GetPluginRevision(name: string): string
+  const rev = minpac#git#GetRevision(g:minpac#pluglist[name].dir)
+  if rev != null_string
+    EchoMVerbose(4, '', 'revision (' .. name .. '): ' .. rev)
+    return rev
   endif
-  return s:exec_plugin_cmd(a:name, ['rev-parse', 'HEAD'], 'revision')
-endfunction
+  return ExecPluginCmd(name, ['rev-parse', 'HEAD'], 'revision')
+enddef
 
-" Get the exact tag name of the specified plugin.
-function! s:get_plugin_tag(name) abort
-  return s:exec_plugin_cmd(a:name, ['describe', '--tags', '--exact-match'], 'tag')
-endfunction
+# Get the exact tag name of the specified plugin.
+def GetPluginTag(name: string): string
+  return ExecPluginCmd(name, ['describe', '--tags', '--exact-match'], 'tag')
+enddef
 
-" Get the latest tag name of the specified plugin. Sorted by version number.
-function! s:get_plugin_latest_tag(name, tag) abort
-  return s:exec_plugin_cmd(a:name, ['tag', '--list', '--sort=-version:refname', a:tag], 'latest tag')
-endfunction
+# Get the latest tag name of the specified plugin. Sorted by version number.
+def GetPluginLatestTag(name: string, tag: string): string
+  return ExecPluginCmd(name, ['tag', '--list', '--sort=-version:refname', tag], 'latest tag')
+enddef
 
-" Get the branch name of the specified plugin.
-function! s:get_plugin_branch(name) abort
-  " let l:branch = minpac#git#get_branch(g:minpac#pluglist[a:name].dir)
-  let l:branch = minpac#git#GetBranch(g:minpac#pluglist[a:name].dir)
-  if l:branch != v:null
-    call s:echom_verbose(4, '', 'branch: ' . l:branch)
-    return l:branch
+# Get the branch name of the specified plugin.
+def GetPluginBranch(name: string): string
+  const branch = minpac#git#GetBranch(g:minpac#pluglist[name].dir)
+  if branch != null_string
+    EchoMVerbose(4, '', 'branch: ' .. branch)
+    return branch
   endif
-  return s:exec_plugin_cmd(a:name, ['symbolic-ref', '--short', 'HEAD'], 'branch')
-endfunction
+  return ExecPluginCmd(name, ['symbolic-ref', '--short', 'HEAD'], 'branch')
+enddef
 
 
-function! s:decrement_plugin_count() abort
-  let s:remain_plugins -= 1
-  if s:remain_plugins == 0
-    call timer_stop(s:timer_id)
-    let s:timer_id = -1
+def DecrementPluginCount()
+  remain_plugins -= 1
+  if remain_plugins == 0
+    timer_stop(timer_id)
+    timer_id = -1
 
-    " `minpac#update()` is finished.
-    call s:invoke_hook('finish-update', [s:updated_plugins, s:installed_plugins], s:finish_update_hook)
+    # `minpac#update()` is finished.
+    InvokeHook('finish-update', [updated_plugins, installed_plugins], Finish_update_hook)
 
-    if has('nvim') && exists(':UpdateRemotePlugins') == 2
-          \ && (s:updated_plugins > 0 || s:installed_plugins > 0)
-      UpdateRemotePlugins
-    endif
-
-    " Show the status.
-    if s:error_plugins + s:updated_plugins + s:installed_plugins > 0
-      if g:minpac#opt.progress_open !=# 'none'
-        call s:echom_verbose(1, '', '')   " empty line
+    # Show the status.
+    if error_plugins + updated_plugins + installed_plugins > 0
+      if g:minpac#opt.progress_open != 'none'
+        EchoMVerbose(1, '', '')   # empty line
       endif
     endif
-    if s:error_plugins > 0
-      call s:echom_verbose(1, 'warning', 'Error plugins: ' . s:error_plugins)
+    if error_plugins > 0
+      EchoMVerbose(1, 'warning', 'Error plugins: ' .. error_plugins)
     else
-      let l:mes = 'All plugins are up to date.'
-      if s:updated_plugins + s:installed_plugins > 0
-        let l:mes .= ' (Updated: ' . s:updated_plugins . ', Newly installed: ' . s:installed_plugins . ')'
+      var mes = 'All plugins are up to date.'
+      if updated_plugins + installed_plugins > 0
+        mes ..= ' (Updated: ' .. updated_plugins .. ', Newly installed: ' .. installed_plugins .. ')'
       endif
-      call s:echom_verbose(1, '', l:mes)
+      EchoMVerbose(1, '', mes)
     endif
-    if g:minpac#opt.progress_open !=# 'none'
-      call s:echom_verbose(1, '', '(Type "q" to close this window. Type "s" to open the status window.)')
+    if g:minpac#opt.progress_open != 'none'
+      EchoMVerbose(1, '', '(Type "q" to close this window. Type "s" to open the status window.)')
     endif
 
-    " Open the status window.
-    if s:updated_plugins + s:installed_plugins > 0
+    # Open the status window.
+    if updated_plugins + installed_plugins > 0
       if g:minpac#opt.status_auto
-        call minpac#status()
+        minpac#status()
       endif
     endif
 
-    " Restore the pager.
-    if exists('s:save_more')
-      let &more = s:save_more
-      unlet s:save_more
+    # Restore the pager.
+    if save_more_to_set
+      &more = save_more
+      save_more_to_set = false
     endif
   endif
-endfunction
+enddef
 
-if exists('*chdir')
-  let s:chdir = function('chdir')
-else
-  function! s:chdir(dir) abort
-    if has('nvim')
-      let l:cdcmd = haslocaldir() ? 'lcd' : (haslocaldir(-1, 0) ? 'tcd' : 'cd')
-    else
-      let l:cdcmd = haslocaldir() ? ((haslocaldir() == 1) ? 'lcd' : 'tcd') : 'cd'
-    endif
-    let l:pwd = getcwd()
-    execute l:cdcmd fnameescape(a:dir)
-    return l:pwd
-  endfunction
+# vim9script
+# var Ref = (a: string): string => ''
+# def F()
+# enddef
+# echo Ref
+# Ref = function('chdir')
+# echo Ref
+
+var Chdir = function('chdir')
+
+if !exists('*chdir')
+  Chdir = (dir: string): string => {
+    const cdcmd = haslocaldir() ? ((haslocaldir() == 1) ? 'lcd' : 'tcd') : 'cd'
+    const pwd = getcwd()
+    execute cdcmd fnameescape(dir)
+    return pwd
+  }
 endif
 
-function! s:invoke_hook(hooktype, args, hook) abort
-  if a:hook ==# ''
+def InvokeHook(hooktype: string, args: list<any>, hook: any)
+  if hook->empty()   # works for v:t_func too
+    # writefile([
+    #   'RETURNED!!!:',
+    #   printf('0: %s (%s)', hooktype, typename(hooktype)),
+    #   printf('1: %s (%s)', args, typename(args)),
+    #   printf('2: %s (%s)', hook, typename(hook)),
+    # ], '/dev/shm/minpac-invokehook.log', '')
     return
   endif
 
-  if a:hooktype ==# 'post-update'
-    let l:name = a:args[0]
-    let l:pluginfo = g:minpac#pluglist[l:name]
-    noautocmd let l:pwd = s:chdir(l:pluginfo.dir)
+  var pwd = ''
+  if hooktype == 'post-update'
+    const name = args[0]
+    const pluginfo = g:minpac#pluglist[name]
+    noautocmd pwd = Chdir(pluginfo.dir)
   endif
   try
-    if type(a:hook) == v:t_func
-      call call(a:hook, [a:hooktype] + a:args)
-    elseif type(a:hook) == v:t_string
-      execute a:hook
+    if type(hook) == v:t_func
+      call(hook, [hooktype] + args)
+    elseif type(hook) == v:t_string
+      execute hook
     endif
   catch
-    call s:echom_verbose(1, 'error', v:throwpoint)
-    call s:echom_verbose(1, 'error', v:exception)
+    EchoMVerbose(1, 'error', v:throwpoint)
+    EchoMVerbose(1, 'error', v:exception)
   finally
-    if a:hooktype ==# 'post-update'
-      noautocmd call s:chdir(l:pwd)
+    if hooktype == 'post-update'
+      noautocmd Chdir(pwd)
     endif
   endtry
-endfunction
+enddef
 
-function! s:is_helptags_old(dir) abort
-  let l:txts = glob(a:dir . '/*.txt', 1, 1) + glob(a:dir . '/*.[a-z][a-z]x', 1, 1)
-  let l:tags = glob(a:dir . '/tags', 1, 1) + glob(a:dir . '/tags-[a-z][a-z]', 1, 1)
-  let l:txt_newest = max(map(l:txts, {-> getftime(v:val)}))
-  let l:tag_oldest = min(map(l:tags, {-> getftime(v:val)}))
-  return l:txt_newest > l:tag_oldest
-endfunction
+def IsHelptagsOld(dir: string): bool
+  var txts = glob(dir .. '/*.txt', 1, 1) + glob(dir .. '/*.[a-z][a-z]x', 1, 1)
+  var tags = glob(dir .. '/tags', 1, 1) + glob(dir .. '/tags-[a-z][a-z]', 1, 1)
+  const txt_newest = max(map(txts, (_, value) => getftime(value)))
+  const tag_oldest = min(map(tags, (_, value) => getftime(value)))
+  return txt_newest > tag_oldest
+enddef
 
-function! s:generate_helptags(dir) abort
-  let l:docdir = a:dir . '/doc'
-  if s:is_helptags_old(l:docdir)
-    silent! execute 'helptags' fnameescape(l:docdir)
+def GenerateHelptags(dir: string)
+  const docdir = dir .. '/doc'
+  if IsHelptagsOld(docdir)
+    silent! execute 'helptags' fnameescape(docdir)
   endif
-endfunction
+enddef
 
-function! s:add_rtp(dir) abort
+def AddRtp(dir: string)
   if empty(&rtp)
-    let &rtp = a:dir
+    &rtp = dir
   else
-    let &rtp .= ',' . a:dir
+    &rtp ..= ',' .. dir
   endif
-endfunction
+enddef
+
+var CreateLink = (target: string, link: string) => {
+  System(['ln', '-sf', target, link])
+}
 
 if has('win32')
-  function! s:create_link(target, link) abort
-    if isdirectory(a:target)
-      call delete(a:target)
+  CreateLink = (target: string, link: string) => {
+    if isdirectory(target)
+      delete(target)
     endif
-    call minpac#impl#system(['cmd.exe', '/c', 'mklink', '/J',
-          \ substitute(a:link, '/', '\', 'g'),
-          \ substitute(a:target, '/', '\', 'g')])
-  endfunction
-else
-  function! s:create_link(target, link) abort
-    call minpac#impl#system(['ln', '-sf', a:target, a:link])
-  endfunction
+    System(['cmd.exe', '/c', 'mklink', '/J',
+      substitute(link, '/', '\', 'g'),
+      substitute(target, '/', '\', 'g')
+    ])
+  }
 endif
 
-function! s:handle_subdir(pluginfo) abort
-  if a:pluginfo.type ==# 'start'
-    let l:workdir = g:minpac#opt.minpac_start_dir_sub
+def HandleSubdir(pluginfo: dict<any>)
+  var workdir = ''
+  if pluginfo.type == 'start'
+    workdir = g:minpac#opt.minpac_start_dir_sub
   else
-    let l:workdir = g:minpac#opt.minpac_opt_dir_sub
+    workdir = g:minpac#opt.minpac_opt_dir_sub
   endif
-  if !isdirectory(l:workdir)
-    call mkdir(l:workdir, 'p')
+  if !isdirectory(workdir)
+    mkdir(workdir, 'p')
   endif
-  noautocmd let l:pwd = s:chdir(l:workdir)
+  noautocmd const pwd = Chdir(workdir)
   try
-    if !isdirectory(a:pluginfo.name)
-      call s:create_link(a:pluginfo.dir . '/' . a:pluginfo.subdir,
-            \ a:pluginfo.name)
+    if !isdirectory(pluginfo.name)
+      CreateLink(pluginfo.dir .. '/' .. pluginfo.subdir,
+        pluginfo.name)
     endif
   finally
-    noautocmd call s:chdir(l:pwd)
+    noautocmd Chdir(pwd)
   endtry
-endfunction
+enddef
 
-function! s:job_exit_cb(id, errcode, event) dict abort
-  " Remove myself from s:joblist.
-  call filter(s:joblist, {-> v:val != a:id})
+# vim9script
+# class MyClass
+#   var data: list<number>
+#
+#   def Mylen(): number
+#      return len(this.data)
+#   enddef
+# endclass
+# var myclass = MyClass.new([0, 1, 2, 3])
+# echo myclass.Mylen()
 
-  let l:err = 1
-  let l:pluginfo = g:minpac#pluglist[self.name]
-  let l:pluginfo.stat.errcode = a:errcode
-  if a:errcode == 0
-    let l:dir = l:pluginfo.dir
-    " Check if the plugin directory is available.
-    if isdirectory(l:dir)
-      " Check if it is actually updated (or installed).
-      let l:updated = 1
-      if l:pluginfo.stat.prev_rev !=# '' && l:pluginfo.stat.upd_method != 2
-        if l:pluginfo.stat.prev_rev ==# minpac#impl#get_plugin_revision(self.name)
-          let l:updated = 0
+def JobExitCb(self: dict<any>, id: number, errcode: number, event: string)
+  # Remove myself from s:joblist.
+  filter(joblist, (_, value) => value != id)
+
+  var err = 1
+  var pluginfo = g:minpac#pluglist[self.name]
+  pluginfo.stat.errcode = errcode
+  if errcode == 0
+    const dir = pluginfo.dir
+    # Check if the plugin directory is available.
+    if isdirectory(dir)
+      # Check if it is actually updated (or installed).
+      var updated = 1
+      if pluginfo.stat.prev_rev != '' && pluginfo.stat.upd_method != 2
+        if pluginfo.stat.prev_rev == GetPluginRevision(self.name)
+          updated = 0
         endif
       endif
 
-      if l:updated
-        if l:pluginfo.stat.upd_method == 2
-          let l:rev = l:pluginfo.rev
-          if l:rev ==# ''
-            " If no branch or tag is specified, consider as the master branch.
-            let l:rev = 'master'
+      if updated
+        if pluginfo.stat.upd_method == 2
+          var rev = pluginfo.rev
+          if rev == ''
+            # If no branch or tag is specified, consider as the master branch.
+            rev = 'master'
           endif
           if self.seq == 0
-            " Check out the specified revison (or branch).
-            if l:rev =~# '\*'
-              " If it includes '*', consider as the latest matching tag.
-              let l:rev = s:get_plugin_latest_tag(self.name, l:rev)
-              if l:rev ==# ''
-                let s:error_plugins += 1
-                call s:echom_verbose(1, 'error', 'Error while updating "' . self.name . '".  No tags found.')
-                call s:decrement_plugin_count()
+            # Check out the specified revison (or branch).
+            if rev =~ '\*'
+              # If it includes '*', consider as the latest matching tag.
+              rev = GetPluginLatestTag(self.name, rev)
+              if rev == ''
+                error_plugins += 1
+                EchoMVerbose(1, 'error', 'Error while updating "' .. self.name .. '".  No tags found.')
+                DecrementPluginCount()
                 return
               endif
             endif
-            let l:cmd = [g:minpac#opt.git, '-C', l:dir,
-                  \ '-c', 'core.fsmonitor=false',
-                  \ 'checkout', l:rev, '--']
-            call s:echom_verbose(3, '', 'Checking out the revison: ' . self.name
-                  \ . ': ' . l:rev)
-            call s:start_job(l:cmd, self.name, self.seq + 1)
+            const cmd = [g:minpac#opt.git, '-C', dir,
+              '-c', 'core.fsmonitor=false',
+              'checkout', rev, '--']
+            EchoMVerbose(3, '', 'Checking out the revison: ' .. self.name
+                   .. ': ' .. rev)
+            StartJob(cmd, self.name, self.seq + 1)
             return
           elseif self.seq == 1
-                \ && s:get_plugin_branch(self.name) == l:rev
-            " Checked out the branch. Update to the upstream.
-            let l:cmd = [g:minpac#opt.git, '-C', l:dir,
-                  \ '-c', 'core.fsmonitor=false',
-                  \ 'merge', '--quiet', '--ff-only', '@{u}']
-            call s:echom_verbose(3, '', 'Update to the upstream: ' . self.name)
-            call s:start_job(l:cmd, self.name, self.seq + 1)
+              && GetPluginBranch(self.name) == rev
+            # Checked out the branch. Update to the upstream.
+            const cmd = [g:minpac#opt.git, '-C', dir,
+              '-c', 'core.fsmonitor=false',
+              'merge', '--quiet', '--ff-only', '@{u}']
+            EchoMVerbose(3, '', 'Update to the upstream: ' .. self.name)
+            StartJob(cmd, self.name, self.seq + 1)
             return
           endif
         endif
-        if l:pluginfo.stat.submod == 0
-          let l:pluginfo.stat.submod = 1
-          if filereadable(l:dir . '/.gitmodules')
-            " Update git submodule.
-            let l:cmd = [g:minpac#opt.git, '-C', l:dir,
-                  \ '-c', 'core.fsmonitor=false',
-                  \ 'submodule', '--quiet', 'update', '--init', '--recursive']
-            call s:echom_verbose(3, '', 'Updating submodules: ' . self.name)
-            call s:start_job(l:cmd, self.name, self.seq + 1)
+        if pluginfo.stat.submod == 0
+          pluginfo.stat.submod = 1
+          if filereadable(dir .. '/.gitmodules')
+            # Update git submodule.
+            const cmd = [g:minpac#opt.git, '-C', dir,
+              '-c', 'core.fsmonitor=false',
+              'submodule', '--quiet', 'update', '--init', '--recursive']
+            EchoMVerbose(3, '', 'Updating submodules: ' .. self.name)
+            StartJob(cmd, self.name, self.seq + 1)
             return
           endif
         endif
 
-        call s:generate_helptags(l:dir)
+        GenerateHelptags(dir)
 
-        if l:pluginfo.subdir !=# ''
-          call s:handle_subdir(l:pluginfo)
+        if pluginfo.subdir != ''
+          call HandleSubdir(pluginfo)
         endif
 
-        if has('nvim') && isdirectory(l:dir . '/rplugin')
-          " Required for :UpdateRemotePlugins.
-          call s:add_rtp(l:dir)
-        endif
-
-        call s:invoke_hook('post-update', [self.name], l:pluginfo.do)
+        InvokeHook('post-update', [self.name], pluginfo.do)
       else
-        " Even the plugin is not updated, generate helptags if it is not found.
-        call s:generate_helptags(l:dir)
+        # Even the plugin is not updated, generate helptags if it is not found.
+        GenerateHelptags(dir)
       endif
 
-      if l:pluginfo.stat.installed
-        if l:updated
-          let s:updated_plugins += 1
-          call s:echom_verbose(1, '', 'Updated: ' . self.name)
+      if pluginfo.stat.installed
+        if updated
+          updated_plugins += 1
+          EchoMVerbose(1, '', 'Updated: ' .. self.name)
         else
-          call s:echom_verbose(3, '', 'Already up-to-date: ' . self.name)
+          EchoMVerbose(3, '', 'Already up-to-date: ' .. self.name)
         endif
       else
-        let s:installed_plugins += 1
-        call s:echom_verbose(1, '', 'Installed: ' . self.name)
+        installed_plugins += 1
+        EchoMVerbose(1, '', 'Installed: ' .. self.name)
       endif
-      let l:err = 0
+      err = 0
     endif
   endif
-  if l:err
-    let s:error_plugins += 1
-    call s:echom_verbose(1, 'error', 'Error while updating "' . self.name . '".  Error code: ' . a:errcode)
+  if err
+    error_plugins += 1
+    EchoMVerbose(1, 'error', 'Error while updating "' .. self.name .. '".  Error code: ' .. errcode)
   endif
 
-  call s:decrement_plugin_count()
-endfunction
+  DecrementPluginCount()
+enddef
 
-function! s:job_err_cb(id, message, event) dict abort
-  let l:mes = copy(a:message)
-  if len(l:mes) > 0 && l:mes[-1] ==# ''
-    " Remove the last empty line. It is redundant.
-    call remove(l:mes, -1)
+def JobErrCb(self: dict<any>, id: number, message: list<string>, event: string)
+  var mes = copy(message)
+  if len(mes) > 0 && mes[-1]->empty()
+    # Remove the last empty line. It is redundant.
+    remove(mes, -1)
   endif
-  for l:line in l:mes
-    let l:line = substitute(l:line, "\t", '        ', 'g')
-    call add(g:minpac#pluglist[self.name].stat.lines, l:line)
-    call s:echom_verbose(2, 'warning', self.name . ': ' . l:line)
+  for line in mes
+    const line2 = substitute(line, "\t", '        ', 'g')
+    add(g:minpac#pluglist[self.name].stat.lines, line2)
+    EchoMVerbose(2, 'warning', self.name .. ': ' .. line2)
   endfor
-endfunction
+enddef
 
-function! s:start_job_core(cmds, name, seq) abort
-  let l:quote_cmds = s:quote_cmds(a:cmds)
-  call s:echom_verbose(4, '', 'start_job: cmds=' . string(l:quote_cmds))
-  let l:job = minpac#job#Start(l:quote_cmds, {
-        \ 'on_stderr': function('s:job_err_cb'),
-        \ 'on_exit': function('s:job_exit_cb'),
-        \ 'name': a:name, 'seq': a:seq
-        \ })
-  if l:job > 0
-    " It worked!
-    let s:joblist += [l:job]
+def StartJobCore(cmds: list<string>, name: string, seq: number): number
+  const quote_cmds = QuoteCmds(cmds)
+  EchoMVerbose(4, '', 'start_job: cmds=' .. string(quote_cmds))
+  var self = {
+    'name': name,
+    'seq': seq
+  }
+  self.on_stderr = function('JobErrCb', [self])
+  self.on_exit = function('JobExitCb', [self])
+  const job = minpac#job#Start(quote_cmds, self)
+  if job > 0
+    # It worked!
+    joblist += [job]
     return 0
   else
-    call s:echom_verbose(1, 'error', 'Fail to execute: ' . a:cmds[0])
-    call s:decrement_plugin_count()
+    EchoMVerbose(1, 'error', 'Fail to execute: ' .. cmds[0])
+    DecrementPluginCount()
     return 1
   endif
-endfunction
+enddef
 
-function! s:timer_worker(timer) abort
-  if (len(s:joblist) >= g:minpac#opt.jobs) || (len(s:jobqueue) == 0)
-    return
+def TimerWorker(timer: number): number
+  if (len(joblist) >= g:minpac#opt.jobs) || (len(jobqueue) == 0)
+    return 0
   endif
-  let l:job = remove(s:jobqueue, 0)
-  return s:start_job_core(l:job[0], l:job[1], l:job[2])
-endfunction
+  const job = remove(jobqueue, 0)
+  return StartJobCore(job[0], job[1], job[2])
+enddef
 
-function! s:start_job(cmds, name, seq, ...) abort
-  if len(s:joblist) > 1
+def StartJob(cmds: list<string>, name: string, seq: number, ...rest: list<any>): number
+  if len(joblist) > 1
     sleep 20m
   endif
   if g:minpac#opt.jobs > 0
-    if len(s:joblist) >= g:minpac#opt.jobs
-      if s:timer_id == -1
-        let s:timer_id = timer_start(500, function('s:timer_worker'), {'repeat': -1})
+    if len(joblist) >= g:minpac#opt.jobs
+      if timer_id == -1
+        timer_id = timer_start(500, function('TimerWorker'), {'repeat': -1})
       endif
-      " Add the job to s:jobqueue.
-      let s:jobqueue += [[a:cmds, a:name, a:seq]]
+      # Add the job to s:jobqueue.
+      jobqueue += [[cmds, name, seq]]
       return 0
     endif
   endif
-  return s:start_job_core(a:cmds, a:name, a:seq)
-endfunction
+  return StartJobCore(cmds, name, seq)
+enddef
 
-function! s:is_same_commit(a, b) abort
-  let l:min = min([len(a:a), len(a:b)]) - 1
-  return a:a[0 : l:min] ==# a:b[0 : l:min]
-endfunction
+def IsSameCommit(a: string, b: string): bool
+  const _min = min([len(a), len(b)]) - 1
+  return a[0 : _min] == b[0 : _min]
+enddef
 
-" Check the status of the plugin.
-" return: 0: No need to update.
-"         1: Need to update by pull.
-"         2: Need to update by fetch & checkout.
-function! s:check_plugin_status(name) abort
-  let l:pluginfo = g:minpac#pluglist[a:name]
-  let l:pluginfo.stat.prev_rev = minpac#impl#get_plugin_revision(a:name)
-  let l:branch = s:get_plugin_branch(a:name)
+# Check the status of the plugin.
+# return: 0: No need to update.
+#         1: Need to update by pull.
+#         2: Need to update by fetch & checkout.
+def CheckPluginStatus(name: string): number
+  var pluginfo = g:minpac#pluglist[name]
+  pluginfo.stat.prev_rev = GetPluginRevision(name)
+  const branch = GetPluginBranch(name)
 
-  if l:pluginfo.rev ==# ''
-    " No branch or tag is specified.
-    if l:branch ==# ''
-      " Maybe a detached head. Need to update by fetch & checkout.
+  if pluginfo.rev->empty()
+    # No branch or tag is specified.
+    if branch->empty()
+      # Maybe a detached head. Need to update by fetch & checkout.
       return 2
     else
-      " Need to update by pull.
+      # Need to update by pull.
       return 1
     endif
   endif
-  if l:branch == l:pluginfo.rev
-    " Same branch. Need to update by pull.
+  if branch == pluginfo.rev
+    # Same branch. Need to update by pull.
     return 1
   endif
-  if s:get_plugin_tag(a:name) == l:pluginfo.rev
-    " Same tag. No need to update.
+  if GetPluginTag(name) == pluginfo.rev
+    # Same tag. No need to update.
     return 0
   endif
-  if s:is_same_commit(l:pluginfo.stat.prev_rev, l:pluginfo.rev)
-    " Same commit ID. No need to update.
+  if IsSameCommit(pluginfo.stat.prev_rev, pluginfo.rev)
+    # Same commit ID. No need to update.
     return 0
   endif
 
-  " Need to update by fetch & checkout.
+  # Need to update by fetch & checkout.
   return 2
-endfunction
+enddef
 
-" Check whether the type was changed. If it was changed, rename the directory.
-function! s:prepare_plugin_dir(pluginfo) abort
-  let l:dir = a:pluginfo.dir
-  if !isdirectory(l:dir)
-    if a:pluginfo.type ==# 'start'
-      let l:dirtmp = substitute(l:dir, '/start/\ze[^/]\+$', '/opt/', '')
+# Check whether the type was changed. If it was changed, rename the directory.
+def PreparePluginDir(pluginfo: dict<any>)
+  const dir = pluginfo.dir
+  if !isdirectory(dir)
+    var dirtmp = ''
+    if pluginfo.type == 'start'
+      dirtmp = substitute(dir, '/start/\ze[^/]\+$', '/opt/', '')
     else
-      let l:dirtmp = substitute(l:dir, '/opt/\ze[^/]\+$', '/start/', '')
+      dirtmp = substitute(dir, '/opt/\ze[^/]\+$', '/start/', '')
     endif
-    if isdirectory(l:dirtmp)
-      " The type was changed (start <-> opt).
-      call rename(l:dirtmp, l:dir)
+    if isdirectory(dirtmp)
+      # The type was changed (start <-> opt).
+      rename(dirtmp, dir)
     endif
   endif
 
-  " Check subdir.
-  if a:pluginfo.subdir !=# ''
-    let l:name = a:pluginfo.name
-    if a:pluginfo.type ==# 'start'
-      let l:subdir = g:minpac#opt.minpac_start_dir_sub . '/' . l:name
-      let l:otherdir = g:minpac#opt.minpac_opt_dir_sub . '/' . l:name
+  # Check subdir.
+  if pluginfo.subdir != ''
+    const name = pluginfo.name
+    var [subdir, otherdir] = ['', '']
+    if pluginfo.type == 'start'
+      subdir = g:minpac#opt.minpac_start_dir_sub .. '/' .. name
+      otherdir = g:minpac#opt.minpac_opt_dir_sub .. '/' .. name
     else
-      let l:subdir = g:minpac#opt.minpac_opt_dir_sub . '/' . l:name
-      let l:otherdir = g:minpac#opt.minpac_start_dir_sub . '/' . l:name
+      subdir = g:minpac#opt.minpac_opt_dir_sub .. '/' .. name
+      otherdir = g:minpac#opt.minpac_start_dir_sub .. '/' .. name
     endif
-    if isdirectory(l:otherdir) && !isdirectory(l:subdir)
-      " The type was changed (start <-> opt).
-      call delete(l:otherdir)
-      call s:handle_subdir(a:pluginfo)
+    if isdirectory(otherdir) && !isdirectory(subdir)
+      # The type was changed (start <-> opt).
+      delete(otherdir)
+      HandleSubdir(pluginfo)
     endif
   endif
-endfunction
+enddef
 
-" Update a single plugin.
-function! s:update_single_plugin(name, force) abort
-  if !has_key(g:minpac#pluglist, a:name)
-    call s:echoerr_verbose(1, 'Plugin not registered: ' . a:name)
-    call s:decrement_plugin_count()
+# Update a single plugin.
+def UpdateSinglePlugin(name: string, force: number): number
+  if !has_key(g:minpac#pluglist, name)
+    EchoErrVerbose(1, 'Plugin not registered: ' .. name)
+    DecrementPluginCount()
     return 1
   endif
 
-  let l:pluginfo = g:minpac#pluglist[a:name]
-  let l:dir = l:pluginfo.dir
-  let l:url = l:pluginfo.url
-  let l:pluginfo.stat.errcode = 0
-  let l:pluginfo.stat.lines = []
-  let l:pluginfo.stat.prev_rev = ''
-  let l:pluginfo.stat.submod = 0
+  var pluginfo = g:minpac#pluglist[name]
+  const dir = pluginfo.dir
+  const url = pluginfo.url
+  pluginfo.stat.errcode = 0
+  pluginfo.stat.lines = []
+  pluginfo.stat.prev_rev = ''
+  pluginfo.stat.submod = 0
 
-  call s:prepare_plugin_dir(l:pluginfo)
-  if isdirectory(l:dir)
-    let l:pluginfo.stat.installed = 1
-    if l:pluginfo.frozen && !a:force
-      call s:echom_verbose(3, '', 'Skipped: ' . a:name)
-      call s:decrement_plugin_count()
+  PreparePluginDir(pluginfo)
+  var cmd = []
+  if isdirectory(dir)
+    pluginfo.stat.installed = 1
+    if pluginfo.frozen && !force
+      EchoMVerbose(3, '', 'Skipped: ' .. name)
+      DecrementPluginCount()
       return 0
     endif
 
-    let l:ret = s:check_plugin_status(a:name)
-    let l:pluginfo.stat.upd_method = l:ret
-    if l:ret == 0
-      " No need to update.
-      call s:echom_verbose(3, '', 'Already up-to-date: ' . a:name)
-      call s:decrement_plugin_count()
+    const ret = CheckPluginStatus(name)
+    pluginfo.stat.upd_method = ret
+    if ret == 0
+      # No need to update.
+      EchoMVerbose(3, '', 'Already up-to-date: ' .. name)
+      DecrementPluginCount()
       return 0
-    elseif l:ret == 1
-      " Same branch. Update by pull.
-      call s:echo_verbose(3, '', 'Updating (pull): ' . a:name)
-      let l:cmd = [g:minpac#opt.git, '-C', l:dir,
-            \ '-c', 'core.fsmonitor=false',
-            \ 'pull', '--quiet']
-      if l:pluginfo.pullmethod ==# 'autostash'
-        let l:cmd += ['--rebase', '--autostash']
+    elseif ret == 1
+      # Same branch. Update by pull.
+      EchoVerbose(3, '', 'Updating (pull): ' .. name)
+      cmd = [g:minpac#opt.git, '-C', dir,
+        '-c', 'core.fsmonitor=false',
+        'pull', '--quiet']
+      if pluginfo.pullmethod == 'autostash'
+        cmd += ['--rebase', '--autostash']
       else
-        let l:cmd += ['--ff-only', '--rebase=false']
+        cmd += ['--ff-only', '--rebase=false']
       endif
-    elseif l:ret == 2
-      " Different branch. Update by fetch & checkout.
-      call s:echo_verbose(3, '', 'Updating (fetch): ' . a:name)
-      let l:cmd = [g:minpac#opt.git, '-C', l:dir,
-            \ '-c', 'core.fsmonitor=false',
-            \ 'fetch', '--depth', '999999']
+    elseif ret == 2
+      # Different branch. Update by fetch & checkout.
+      EchoVerbose(3, '', 'Updating (fetch): ' .. name)
+      cmd = [g:minpac#opt.git, '-C', dir,
+        '-c', 'core.fsmonitor=false',
+        'fetch', '--depth', '999999']
     endif
   else
-    let l:pluginfo.stat.installed = 0
-    if l:pluginfo.rev ==# ''
-      let l:pluginfo.stat.upd_method = 1
+    pluginfo.stat.installed = 0
+    if pluginfo.rev == ''
+      pluginfo.stat.upd_method = 1
     else
-      let l:pluginfo.stat.upd_method = 2
+      pluginfo.stat.upd_method = 2
     endif
-    call s:echo_verbose(3, '', 'Cloning ' . a:name)
+    EchoVerbose(3, '', 'Cloning ' .. name)
 
-    let l:cmd = [g:minpac#opt.git,
-          \ '-c', 'core.fsmonitor=false',
-          \ 'clone', '--quiet', l:url, l:dir, '--no-single-branch']
-    if l:pluginfo.depth > 0 && l:pluginfo.rev ==# ''
-      let l:cmd += ['--depth=' . l:pluginfo.depth]
+    cmd = [g:minpac#opt.git,
+      '-c', 'core.fsmonitor=false',
+      'clone', '--quiet', url, dir, '--no-single-branch']
+    if pluginfo.depth > 0 && pluginfo.rev == ''
+      cmd += ['--depth=' .. pluginfo.depth]
     endif
-    if l:pluginfo.branch !=# ''
-      let l:cmd += ['--branch=' . l:pluginfo.branch]
+    if pluginfo.branch != ''
+      cmd += ['--branch=' .. pluginfo.branch]
     endif
   endif
-  return s:start_job(l:cmd, a:name, 0)
-endfunction
+  return StartJob(cmd, name, 0)
+enddef
 
-function! s:start_update(names, force, id) abort
-  for l:name in a:names
-    call s:update_single_plugin(l:name, a:force)
+def StartUpdate(names: list<string>, force: number, id: number)
+  for name in names
+    UpdateSinglePlugin(name, force)
   endfor
-endfunction
+enddef
 
-" Update all or specified plugin(s).
-function! minpac#impl#update(...) abort
-  if g:minpac#opt.progress_open !=# 'none'
-    " call minpac#progress#open(['## minpac update progress ##', ''])
-    call minpac#progress#Open(['## minpac update progress ##', ''])
+# Update all or specified plugin(s).
+export def Update(...rest: list<any>): bool
+  if g:minpac#opt.progress_open != 'none'
+    minpac#progress#Open(['## minpac update progress ##', ''])
   endif
-  let l:opt = extend(copy(get(a:000, 1, {})),
-        \ {'do': ''}, 'keep')
+  var opt = extend(copy(get(rest, 1, {})), {'do': ''}, 'keep')
 
-  let l:force = 0
-  if a:0 == 0 || (type(a:1) == v:t_string && a:1 ==# '')
-    let l:names = keys(g:minpac#pluglist)
-  elseif type(a:1) == v:t_string
-    let l:names = [a:1]
-    let l:force = 1
-  elseif type(a:1) == v:t_list
-    let l:names = a:1
-    let l:force = 1
+  var force = 0
+  var names = []
+  if rest->len() == 0 || (type(rest[0]) == v:t_string && rest[0]->empty())
+    names = keys(g:minpac#pluglist)
+  elseif type(rest[0]) == v:t_string
+    names = [rest[0]]
+    force = 1
+  elseif type(rest[0]) == v:t_list
+    names = rest[0]
+    force = 1
   else
-    call s:echoerr_verbose(1, 'Wrong parameter type. Must be a String or a List of Strings.')
-    return
+    EchoErrVerbose(1, 'Wrong parameter type. Must be a String or a List of Strings.')
+    return false
   endif
 
-  if s:remain_plugins > 0
-    call s:echom_verbose(1, '', 'Previous update has not been finished.')
-    return
+  if remain_plugins > 0
+    EchoMVerbose(1, '', 'Previous update has not been finished.')
+    return false
   endif
-  let s:remain_plugins = len(l:names)
-  let s:error_plugins = 0
-  let s:updated_plugins = 0
-  let s:installed_plugins = 0
-  let s:finish_update_hook = l:opt.do
+  remain_plugins = len(names)
+  error_plugins = 0
+  updated_plugins = 0
+  installed_plugins = 0
+  Finish_update_hook = opt.do
 
-  if g:minpac#opt.progress_open ==# 'none'
-    " Disable the pager temporarily to avoid jobs being interrupted.
-    if !exists('s:save_more')
-      let s:save_more = &more
+  if g:minpac#opt.progress_open == 'none'
+    # Disable the pager temporarily to avoid jobs being interrupted.
+    if !save_more_to_set
+      save_more = &more
+      save_more_to_set = true
     endif
     set nomore
   endif
 
-  call timer_start(1, function('s:start_update', [l:names, l:force]))
-endfunction
+  timer_start(1, function('StartUpdate', [names, force]))
+  return true
+enddef
 
 
-" Check if the dir matches specified package name and plugin names.
-function! s:match_plugin(dir, packname, plugnames) abort
-  let l:plugname = '\%(' . join(a:plugnames, '\|') . '\)'
-  let l:plugname = substitute(l:plugname, '\.', '\\.', 'g')
-  let l:plugname = substitute(l:plugname, '\*', '.*', 'g')
-  let l:plugname = substitute(l:plugname, '?', '.', 'g')
-  if l:plugname =~# '/'
-    let l:pat = '/pack/' . a:packname . '\%(-sub\)\?' . '/' . l:plugname . '$'
+# Check if the dir matches specified package name and plugin names.
+def MatchPlugin(dir: string, packname: string, plugnames: list<string>): bool
+  var plugname = '\%(' .. join(plugnames, '\|') .. '\)'
+  plugname = substitute(plugname, '\.', '\\.', 'g')
+  plugname = substitute(plugname, '\*', '.*', 'g')
+  plugname = substitute(plugname, '?', '.', 'g')
+  var pat = ''
+  if plugname =~ '/'
+    pat = '/pack/' .. packname .. '\%(-sub\)\?' .. '/' .. plugname .. '$'
   else
-    let l:pat = '/pack/' . a:packname . '\%(-sub\)\?' . '/\%(start\|opt\)/' . l:plugname . '$'
+    pat = '/pack/' .. packname .. '\%(-sub\)\?' .. '/\%(start\|opt\)/' .. plugname .. '$'
   endif
   if has('win32')
-    let l:pat = substitute(l:pat, '/', '[/\\\\]', 'g')
-    " case insensitive matching
-    return a:dir =~? l:pat
+    pat = substitute(pat, '/', '[/\\\\]', 'g')
+    # case insensitive matching
+    return dir =~? pat
   else
-    " case sensitive matching
-    return a:dir =~# l:pat
+    # case sensitive matching
+    return dir =~ pat
   endif
-endfunction
+enddef
 
-" Remove plugins that are not registered.
-function! minpac#impl#clean(...) abort
-  let l:plugin_dirs = minpac#getpackages(g:minpac#opt.package_name)
-        \ + minpac#getpackages(g:minpac#opt.package_name . '-sub')
+# Remove plugins that are not registered.
+export def Clean(...rest: list<any>)
+  var plugin_dirs = minpac#getpackages(g:minpac#opt.package_name)
+    + minpac#getpackages(g:minpac#opt.package_name .. '-sub')
 
-  if a:0 > 0
-    " Going to remove only specified plugins.
-    if type(a:1) == v:t_string
-      let l:names = [a:1]
-    elseif type(a:1) == v:t_list
-      let l:names = a:1
+  var to_remove = []
+  if rest->len() > 0
+    # Going to remove only specified plugins.
+    var names = []
+    if type(rest[0]) == v:t_string
+      names = [rest[0]]
+    elseif type(rest[0]) == v:t_list
+      names = rest[0]
     else
       echoerr 'Wrong parameter type. Must be a String or a List of Strings.'
       return
     endif
-    let l:to_remove = filter(l:plugin_dirs,
-          \ {-> s:match_plugin(v:val, g:minpac#opt.package_name, l:names)})
+    to_remove = filter(plugin_dirs,
+      (_, value) => MatchPlugin(value, g:minpac#opt.package_name, names))
   else
-    " Remove all plugins that are not registered.
-    let l:safelist = map(keys(g:minpac#pluglist),
-          \ {-> g:minpac#pluglist[v:val].type . '/' . v:val})
-          \ + ['opt/minpac']  " Don't remove itself.
-    let l:to_remove = filter(l:plugin_dirs,
-          \ {-> !s:match_plugin(v:val, g:minpac#opt.package_name, l:safelist)})
+    # Remove all plugins that are not registered.
+    const safelist = map(keys(g:minpac#pluglist),
+      (_, value) => g:minpac#pluglist[value].type .. '/' .. value)
+    + ['opt/minpac']  # Don't remove itself.
+    to_remove = filter(plugin_dirs,
+      (_, value) => !MatchPlugin(value, g:minpac#opt.package_name, safelist))
   endif
 
-  if len(l:to_remove) == 0
+  if len(to_remove) == 0
     echo 'Already clean.'
     return
   endif
 
-  " Show the list of plugins to be removed.
-  for l:item in l:to_remove
-    echo l:item
+  # Show the list of plugins to be removed.
+  for item in to_remove
+    echo item
   endfor
 
-  let l:dir = (len(l:to_remove) > 1) ? 'directories' : 'directory'
+  const dir = (len(to_remove) > 1) ? 'directories' : 'directory'
 
-  if !g:minpac#opt.confirm || input('Removing the above ' . l:dir . '. [y/N]? ') =~? '^y'
+  if !g:minpac#opt.confirm || input('Removing the above ' .. dir .. '. [y/N]? ') =~? '^y'
     echo "\n"
-    let err = 0
-    for l:item in l:to_remove
-      if delete(l:item, 'rf') != 0
+    var err = 0
+    for item in to_remove
+      if delete(item, 'rf') != 0
         echohl ErrorMsg
-        echom 'Clean failed: ' . l:item
+        echom 'Clean failed: ' .. item
         echohl None
-        let err = 1
+        err = 1
       endif
     endfor
-    if has('nvim') && exists(':UpdateRemotePlugins') == 2
-      UpdateRemotePlugins
-    endif
     if err == 0
       echo 'Successfully cleaned.'
     endif
   else
-    echo "\n" . 'Not cleaned.'
+    echo "\n" .. 'Not cleaned.'
   endif
-endfunction
+enddef
 
-function! minpac#impl#is_update_ran() abort
-  return exists('s:installed_plugins')
-endfunction
+export def IsUpdateRan(): bool
+  return exists('installed_plugins')
+enddef
 
-function! minpac#impl#abort() abort
-  let s:jobqueue = []
-  for l:job in s:joblist
-    call minpac#job#Stop(l:job)
+export def Abort()
+  jobqueue = []
+  for job in joblist
+    minpac#job#Stop(job)
   endfor
-  let s:joblist = []
-  let s:remain_plugins = 0
-  if s:timer_id != -1
-    call timer_stop(s:timer_id)
-    let s:timer_id = -1
+  joblist = []
+  remain_plugins = 0
+  if timer_id != -1
+    timer_stop(timer_id)
+    timer_id = -1
   endif
-endfunction
+enddef
 
-" vim: set ts=8 sw=2 et:
+# vim: set ts=8 sw=2 et:

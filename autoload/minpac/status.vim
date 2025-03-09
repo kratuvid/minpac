@@ -20,7 +20,7 @@ export def Get(opt: dict<any>)
     exec "silent! bwipe" bufnr
   endif
 
-  const is_update_ran = minpac#impl#is_update_ran()
+  const is_update_ran = minpac#impl#IsUpdateRan()
   var update_count = 0
   var install_count = 0
   var error_count = 0
@@ -35,12 +35,12 @@ export def Get(opt: dict<any>)
       plugin.status = 'Not installed'
     else
       const cmd = [g:minpac#opt.git, '-C', dir, 'log', '--color=never', '--pretty=format:%h <<<<%D>>>> %s(%cr)', 'HEAD...HEAD@{1}']
-      var commits = minpac#impl#system(cmd + (git_sign ? ['--no-show-signature'] : []))
+      var commits = minpac#impl#System(cmd + (git_sign ? ['--no-show-signature'] : []))
 
       if !is_git_sign_set
         if commits[0] == 128
           git_sign = false
-          commits = minpac#impl#system(cmd)
+          commits = minpac#impl#System(cmd)
         else
           git_sign = true
         endif
@@ -55,7 +55,7 @@ export def Get(opt: dict<any>)
       
       if !is_update_ran
         plugin.status = 'OK'
-      elseif pluginfo.stat.prev_rev != '' && pluginfo.stat.prev_rev != minpac#impl#get_plugin_revision(name)
+      elseif pluginfo.stat.prev_rev != '' && pluginfo.stat.prev_rev != minpac#impl#GetPluginRevision(name)
         update_count += 1
         plugin.status = 'Updated'
       elseif pluginfo.stat.installed == 0
@@ -175,7 +175,7 @@ def OpenSha()
   silent exe 'pedit' sha
   wincmd p
   setlocal previewwindow filetype=git buftype=nofile nobuflisted modifiable
-  const sha_content = minpac#impl#system([g:minpac#opt.git, '-C', pluginfo.dir, 'show',
+  const sha_content = minpac#impl#System([g:minpac#opt.git, '-C', pluginfo.dir, 'show',
             \ '--no-color', '--pretty=medium', sha
             \ ])
 

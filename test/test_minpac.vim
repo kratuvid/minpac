@@ -184,6 +184,18 @@ func Test_minpac_getpackages()
   call delete('pack', 'rf')
 endfunc
 
+" let s:seq = 1
+" func WriteSeq(name, begin = v:false)
+"   let l:fname = 'subtests.log'
+"   let l:flags = ''
+"   if !a:begin
+"     let l:flags = 'a'
+"   endif
+"
+"   call writefile(['Completed subtest #' . s:seq . ': ' . a:name], l:fname, l:flags)
+"   let s:seq = s:seq + 1
+" endfunc
+
 " Tests for minpac#update()
 func Test_minpac_update()
   call delete('pack', 'rf')
@@ -192,10 +204,10 @@ func Test_minpac_update()
 
   " minpac#update() with hooks using Strings.
   call minpac#add('k-takata/minpac', {'type': 'opt',
-	\ 'do': 'let g:post_update = 1'})
+	\ 'do': 'g:post_update = 1'})
   let g:post_update = 0
   let g:finish_update = 0
-  call minpac#update('', {'do': 'let g:finish_update = 1'})
+  call minpac#update('', {'do': 'g:finish_update = 1'})
   while g:finish_update == 0
     sleep 100m
   endwhile
